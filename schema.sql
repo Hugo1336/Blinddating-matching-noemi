@@ -231,3 +231,5 @@ $$;
 -- ---------- Danach manuell ausfüllen (Beispiele) ----------
 -- insert into admins values ('noemi@...'), ('lea@...'), ('deine@mail.at');
 -- insert into slots (starts_at, label, capacity) values ('2026-12-01 14:00+01', 'Labor 1', 2);
+  insert into admins values ('deine@mail.at');
+  insert into slots (starts_at, label, capacity) values ('2026-12-01 14:00+01', 'Test', 2);
