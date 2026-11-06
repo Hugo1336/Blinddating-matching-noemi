@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blind-Date-Studie</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+  :root{--bg:#eef1f6;--ink:#1e2433;--mute:#5b6478;--line:#cfd6e3;--card:#fff;--acc:#1f5f7a;--acc-ink:#fff;--bad:#b4432f}
+  @media (prefers-color-scheme:dark){:root{--bg:#141a26;--ink:#e8ecf5;--mute:#9aa4ba;--line:#2c364b;--card:#1c2434;--acc:#6fb7d3;--acc-ink:#10202a;--bad:#e5836f}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line)}
+  header b{font-size:17px}
+  header nav{display:flex;gap:8px}
+  main{max-width:520px;margin:0 auto;padding:24px 20px 60px}
+  h1{font-size:26px;line-height:1.2;margin:8px 0 12px}
+  p{margin:0 0 14px}
+  .mute{color:var(--mute);font-size:14px}
+  label{display:block;font-weight:600;margin:18px 0 6px}
+  .opt{display:flex;gap:10px;align-items:flex-start;font-weight:400;margin:6px 0}
+  .opt input{margin-top:5px}
+  input[type=email],input[type=number],textarea{width:100%;padding:11px 12px;font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:8px}
+  textarea{min-height:90px;resize:vertical}
+  button{font:inherit;font-weight:600;padding:11px 18px;border-radius:8px;border:1px solid var(--acc);background:var(--acc);color:var(--acc-ink);cursor:pointer}
+  button.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+  button.bad{background:transparent;color:var(--bad);border-color:var(--bad)}
+  button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+  .row{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+  .row>button{flex:1}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 22px;margin:14px 0}
+  .card .code{font-size:30px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px}
+  .card .meta{color:var(--mute);margin:0 0 18px}
+  .card .hobbies{font-size:19px;line-height:1.45;margin:0;white-space:pre-wrap}
+  .slot{padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--card);margin:8px 0}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:12px 0}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  .wrap{overflow-x:auto}
+  .err{color:var(--bad);font-weight:600}
+  details{margin-top:30px}
+  summary{cursor:pointer;color:var(--mute)}
+</style>
+</head>
+<body>
+<header><b>Blind-Date-Studie</b><nav id="nav"></nav></header>
+<main id="app">Lädt …</main>
+
+<script>
+// ===== HIER EINTRAGEN (Supabase: Project Settings → API) =====
+const SUPABASE_URL = 'https://supabase.com/dashboard/project/misdtsubyujpqctkigiu';
+const SUPABASE_KEY = 'sb_publishable_l4xR5Ss7Ef2CODjFjFRHQA_OofMfoii';
+const STUDIENTEAM_MAIL = 'noemi.naier@student.uibk.ac.at';        // wird im Text angezeigt
+// =============================================================
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = d => new Date(d).toLocaleString('de-AT', {weekday:'long', day:'numeric', month:'long', hour:'2-digit', minute:'2-digit'});
+const GENDER = {w:'weiblich', m:'männlich', d:'divers'};
+let view = '', isAdmin = false, queue = [];
+
+const show = html => { $('#app').innerHTML = html; };
+async function rpc(name, args) {
+  const {data, error} = await sb.rpc(name, args);
+  if (error) { alert(error.message); throw error; }
+  return data;
+}
+function nav() {
+  $('#nav').innerHTML =
+    (isAdmin ? '<button class="ghost" onclick="location.hash=location.hash==\'#admin\'?\'\':\'#admin\';route()">Admin</button>' : '') +
+    (view !== 'login' ? '<button class="ghost" onclick="logout()">Abmelden</button>' : '');
+}
+async function logout() { await sb.auth.signOut(); }
+
+async function route() {
+  const {data: {session}} = await sb.auth.getSession();
+  if (!session) { view = 'login'; isAdmin = false; nav(); return loginView(); }
+  isAdmin = await rpc('is_admin');
+  if (isAdmin && location.hash === '#admin') { view = 'admin'; nav(); return adminView(); }
+  const {data: prof} = await sb.from('profiles').select('*').maybeSingle();
+  if (!prof) { view = 'onboarding'; nav(); return onboardingView(); }
+  const matches = await rpc('my_match');
+  if (matches && matches.length) { view = 'match'; nav(); return matchView(matches[0], prof); }
+  view = 'swipe'; nav(); return swipeView(prof);
+}
+
+// ---------- Login ----------
+function loginView() {
+  show(`<h1>Anmelden</h1>
+    <p>Gib deine E-Mail-Adresse ein. Du bekommst einen Link, mit dem du dich ohne Passwort anmeldest.</p>
+    <label for="email">E-Mail</label><input id="email" type="email" autocomplete="email">
+    <div class="row"><button onclick="sendLink()">Link zusenden</button></div>
+    <p id="msg" class="mute"></p>`);
+}
+async function sendLink() {
+  const email = $('#email').value.trim();
+  if (!email) return;
+  const {error} = await sb.auth.signInWithOtp({email, options: {emailRedirectTo: location.origin + location.pathname}});
+  $('#msg').innerHTML = error ? `<span class="err">${esc(error.message)}</span>` : 'Link verschickt. Bitte prüfe dein Postfach (auch den Spam-Ordner).';
+}
+
+// ---------- Registrierung ----------
+async function onboardingView() {
+  const {data: slots} = await sb.from('slots').select('*').gt('starts_at', new Date().toISOString()).order('starts_at');
+  show(`<h1>Dein Profil</h1>
+    <p>Du bleibst für andere Teilnehmende anonym. Sie sehen nur Alter, Geschlecht und Hobbys unter einem Codenamen.</p>
+    <label for="age">Alter (18–28)</label><input id="age" type="number" min="18" max="28">
+    <label>Geschlecht</label>
+    ${['w','m','d'].map(g => `<label class="opt"><input type="radio" name="gender" value="${g}">${GENDER[g]}</label>`).join('')}
+    <label>Ich möchte Personen treffen, die … sind</label>
+    ${['w','m','d'].map(g => `<label class="opt"><input type="checkbox" name="seeking" value="${g}">${GENDER[g]}</label>`).join('')}
+    <label for="hobbies">Deine Hobbys</label><textarea id="hobbies" maxlength="300" placeholder="z. B. Klettern, Kochen, Fantasy-Bücher"></textarea>
+    <label>An diesen Terminen kann ich (mindestens einen wählen)</label>
+    ${(slots && slots.length) ? slots.map(s => `<label class="opt slot"><input type="checkbox" name="slot" value="${s.id}">${fmt(s.starts_at)}${s.label ? ' · ' + esc(s.label) : ''}</label>`).join('') : '<p class="mute">Zurzeit sind keine Termine eingetragen.</p>'}
+    <label class="opt"><input type="checkbox" id="consent">
+      <span>Ich habe die <a href="datenschutz.html" target="_blank">Datenschutzerklärung</a> gelesen und stimme der Verarbeitung meiner Daten für diese Studie zu.</span></label>
+    <div class="row"><button onclick="submitProfile()">Profil speichern</button></div>`);
+}
+async function submitProfile() {
+  const age = parseInt($('#age').value, 10);
+  const gender = (document.querySelector('input[name=gender]:checked') || {}).value;
+  const seeking = [...document.querySelectorAll('input[name=seeking]:checked')].map(e => e.value);
+  const slots = [...document.querySelectorAll('input[name=slot]:checked')].map(e => parseInt(e.value, 10));
+  if (!$('#consent').checked) return alert('Bitte stimme der Datenschutzerklärung zu.');
+  if (!(age >= 18 && age <= 28)) return alert('Das Alter muss zwischen 18 und 28 liegen.');
+  if (!gender || !seeking.length) return alert('Bitte Geschlecht und Suchpräferenz angeben.');
+  if (!slots.length) return alert('Bitte mindestens einen Termin wählen.');
+  await rpc('register_profile', {p_age: age, p_gender: gender, p_seeking: seeking, p_hobbies: $('#hobbies').value, p_slots: slots});
+  route();
+}
+
+// ---------- Swipen ----------
+async function swipeView(prof) {
+  queue = await rpc('get_candidates') || [];
+  renderCard(prof);
+}
+function renderCard(prof) {
+  const c = queue[0];
+  if (!c) return show(`<h1>Gerade keine Profile mehr</h1>
+      <p>Du bist als <b>${esc(prof.codename)}</b> angemeldet. Sobald neue passende Profile da sind, kannst du hier weiterswipen.</p>
+      <div class="row"><button onclick="route()">Neu laden</button></div>${helpBox()}`);
+  show(`<p class="mute">Angemeldet als ${esc(prof.codename)} · ${queue.length} Profile</p>
+    <div class="card"><p class="code">${esc(c.codename)}</p>
+      <p class="meta">${esc(c.age)} Jahre · ${GENDER[c.gender]}</p>
+      <p class="hobbies">${esc(c.hobbies) || '–'}</p></div>
+    <div class="row"><button class="ghost" onclick="skip()">Überspringen</button><button onclick="like()">Gefällt mir</button></div>
+    <p class="mute">Bei gegenseitigem „Gefällt mir“ und gemeinsamem Termin entsteht automatisch ein Date. Danach kannst du nicht mehr weiterswipen.</p>${helpBox()}`);
+  window._prof = prof;
+}
+function skip() { queue.shift(); renderCard(window._prof); }
+async function like() {
+  const c = queue[0];
+  const r = await rpc('like_profile', {p_codename: c.codename});
+  if (r.matched) return route();
+  queue.shift(); renderCard(window._prof);
+}
+
+// ---------- Match ----------
+function matchView(m) {
+  show(`<h1>Du hast ein Date!</h1>
+    <div class="card"><p class="code">${esc(m.partner_codename)}</p>
+      <p class="meta">${esc(m.partner_age)} Jahre</p>
+      <p class="hobbies">${esc(m.partner_hobbies) || ''}</p></div>
+    <div class="slot"><b>${fmt(m.starts_at)}</b>${m.slot_label ? '<br>' + esc(m.slot_label) : ''}</div>
+    <p>${m.i_confirmed ? (m.status === 'confirmed' ? 'Termin ist von beiden bestätigt.' : 'Du hast bestätigt. Wir warten noch auf die andere Person.') : 'Bitte bestätige den Termin.'}</p>
+    <div class="row">${m.i_confirmed ? '' : '<button onclick="doConfirm()">Termin bestätigen</button>'}<button class="bad" onclick="doCancel()">Termin absagen</button></div>${helpBox()}`);
+}
+async function doConfirm() { await rpc('confirm_match'); route(); }
+async function doCancel() {
+  if (!confirm('Termin wirklich absagen? Das Date entfällt für beide, du kannst danach wieder swipen.')) return;
+  await rpc('cancel_match'); route();
+}
+
+// ---------- Hilfe ----------
+function helpBox() {
+  return `<details><summary>Frage oder Problem?</summary>
+    <label for="helpmsg">Nachricht an das Studienteam</label><textarea id="helpmsg"></textarea>
+    <div class="row"><button class="ghost" onclick="sendHelp()">Senden</button></div>
+    <p class="mute">Oder per Mail: ${esc(STUDIENTEAM_MAIL)}</p></details>`;
+}
+async function sendHelp() {
+  const body = $('#helpmsg').value.trim(); if (!body) return;
+  const {error} = await sb.from('messages').insert({body});
+  if (error) return alert(error.message);
+  $('#helpmsg').value = ''; alert('Nachricht gesendet.');
+}
+
+// ---------- Admin ----------
+async function adminView() {
+  const matches = await rpc('admin_matches') || [];
+  window._exp = {matches, profiles: await rpc('admin_profiles') || []};
+  show(`<h1>Admin</h1>
+    <p>${window._exp.profiles.length} Teilnehmende · ${matches.filter(m => m.status !== 'cancelled').length} aktive Matches</p>
+    <div class="row"><button onclick="download('profiles')">Teilnehmende als Excel (CSV)</button><button onclick="download('matches')">Matches als Excel (CSV)</button></div>
+    <div class="wrap"><table><tr><th>Termin</th><th>Person A</th><th>Person B</th><th>Status</th></tr>
+    ${matches.map(m => `<tr><td>${fmt(m.termin)}</td><td>${esc(m.person_a)}</td><td>${esc(m.person_b)}</td><td>${esc(m.status)}</td></tr>`).join('')}</table></div>
+    <p class="mute">Termine anlegen und „bedingung“ eintragen: in Supabase unter Table Editor.</p>`);
+}
+function download(kind) {
+  const rows = window._exp[kind];
+  if (!rows.length) return alert('Noch keine Daten.');
+  const cols = Object.keys(rows[0]);
+  const cell = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const csv = '\uFEFF' + [cols.map(cell).join(';'), ...rows.map(r => cols.map(c => cell(r[c])).join(';'))].join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8'}));
+  a.download = kind + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+}
+
+sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_OUT' || (ev === 'SIGNED_IN' && view === 'login')) route(); });
+window.addEventListener('hashchange', () => { if (isAdmin) route(); });
+route();
+</script>
+</body>
+</html>
